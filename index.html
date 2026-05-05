@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>压力模拟 - 液态玻璃紫霓虹</title>
+    <style>
+        * {margin:0;padding:0;box-sizing:border-box;font-family:system-ui,sans-serif;}
+        body {
+            min-height: 100vh;
+            background: linear-gradient(135deg, #101025, #1a1a35, #251a3a);
+            display: grid;
+            place-items: center;
+            padding: 20px;
+            color: #fff;
+        }
+        .glass {
+            width: 100%;
+            max-width: 440px;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(24px);
+            border-radius: 22px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            padding: 28px;
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.3);
+        }
+        .title {
+            text-align: center;
+            font-size: 26px;
+            color: #c084fc;
+            margin-bottom: 24px;
+            text-shadow: 0 0 12px rgba(192, 132, 252, 0.4);
+        }
+        .label {font-size: 14px; color: rgba(255, 255, 255, 0.8); margin-bottom: 8px;}
+        .input {
+            width: 100%;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 14px;
+            color: #fff;
+            font-size: 16px;
+            margin-bottom: 16px;
+            outline: none;
+        }
+        .input:focus {border-color: #c084fc; box-shadow: 0 0 0 3px rgba(192, 132, 252, 0.15);}
+        .btns {display: flex; gap: 12px; margin-bottom: 28px;}
+        .btn {
+            flex: 1;
+            padding: 14px;
+            border: none;
+            border-radius: 14px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-start {
+            background: linear-gradient(90deg, #a855f7, #7c3aed);
+            color: #fff;
+            box-shadow: 0 4px 16px rgba(168, 85, 247, 0.3);
+        }
+        .btn-stop {
+            background: linear-gradient(90deg, #ef4444, #dc2626);
+            color: #fff;
+            box-shadow: 0 4px 16px rgba(239, 68, 68, 0.3);
+        }
+        .btn:disabled {opacity: 0.5; cursor: not-allowed;}
+        .btn:active:not(:disabled) {transform: scale(0.97);}
+        .stat-title {font-size: 20px; color: #c084fc; margin-bottom: 16px;}
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 18px;
+            text-align: center;
+            margin-bottom: 12px;
+        }
+        .card-label {font-size: 14px; color: rgba(255, 255, 255, 0.7);}
+        .card-value {font-size: 36px; font-weight: 700; color: #c084fc; margin-top: 4px;}
+        .tip {
+            margin-top: 20px;
+            font-size: 12px;
+            text-align: center;
+            color: rgba(255, 255, 255, 0.4);
+        }
+        .log {margin-top: 20px; font-size: 12px; color: rgba(255, 255, 255, 0.6);}
+    </style>
+</head>
+<body>
+<div class="glass">
+    <div class="title">压力模拟演示</div>
+
+    <div class="label">目标 API 地址</div>
+    <input class="input" id="apiUrl" placeholder="https://你的后端地址/api/test">
+
+    <div class="label">请求间隔 (毫秒)</div>
+    <input class="input" id="interval" type="number" min="50" value="300">
+
+    <div class="label">并发请求数</div>
+    <input class="input" id="concurrency" type="number" min="1" value="1">
+
+    <div class="btns">
+        <button class="btn btn-start" id="startBtn">开始模拟</button>
+        <button class="btn btn-stop" id="stopBtn" disabled>停止</button>
+    </div>
+
+    <div class="stat-title">实时统计</div>
+    <div class="card">
+        <div class="card-label">总请求</div>
+        <div class="card-value" id="totalRequests">0</div>
+    </div>
+    <div class="card">
+        <div class="card-label">成功</div>
+        <div class="card-value" id="successRequests">0</div>
+    </div>
+    <div class="card">
+        <div class="card-label">失败</div>
+        <div class="card-value" id="failedRequests">0</div>
+    </div>
+    <div class="card">
+        <div class="card-label">平均响应时间</div>
+        <div class="card-value" id="avgResponseTime">0 ms</div>
+    </div>
+
+    <div class="log" id="logArea">控制台日志将在这里显示...</div>
+    <div class="tip">⚠️ 仅用于测试自己的服务器，请勿攻击他人</div>
+</div>
+
+<script>
+class StressTester {
+    constructor() {
+        this.total = 0;
+        this.success = 0;
+        this.failed = 0;
+        this.responseTimes = [];
+        this.isRunning = false;
+        this.timers = [];
+        
+        this.apiUrlEl = document.getElementById('apiUrl');
+        this.intervalEl = document.getElementById('interval');
+        this.concurrencyEl = document.getElementById('concurrency');
+        this.startBtn = document.getElementById('startBtn');
+        this.stopBtn = document.getElementById('stopBtn');
+        this.totalEl = document.getElementById('totalRequests');
+        this.successEl = document.getElementById('successRequests');
+        this.failedEl = document.getElementById('failedRequests');
+        this.avgTimeEl = document.getElementById('avgResponseTime');
+        this.logEl = document.getElementById('logArea');
+        
+        this.startBtn.addEventListener('click', () => this.start());
+        this.stopBtn.addEventListener('click', () => this.stop());
+    }
+    
+    async makeRequest() {
+        const t1 = performance.now();
+        try {
+            let res = await fetch(this.apiUrlEl.value);
+            let t2 = performance.now();
+            this.total++;
+            this.success++;
+            this.responseTimes.push(t2-t1);
+            this.log(`✅ 成功 ${Math.round(t2-t1)}ms`);
+        } catch(e) {
+            this.total++;
+            this.failed++;
+            this.log(`❌ 失败`);
+        }
+        this.updateUI();
+    }
+    
+    updateUI() {
+        this.totalEl.textContent = this.total;
+        this.successEl.textContent = this.success;
+        this.failedEl.textContent = this.failed;
+        let avg = 0;
+        if(this.responseTimes.length) avg = Math.round(this.responseTimes.reduce((a,b)=>a+b,0)/this.responseTimes.length);
+        this.avgTimeEl.textContent = avg+' ms';
+    }
+    
+    start() {
+        if(this.isRunning) return;
+        this.isRunning = true;
+        this.startBtn.disabled = true;
+        this.stopBtn.disabled = false;
+        let iv = parseInt(this.intervalEl.value) || 300;
+        let c = parseInt(this.concurrencyEl.value) || 1;
+        this.log(`🚀 启动`);
+        for(let i=0;i<c;i++) {
+            let timer = setInterval(()=>this.makeRequest(), iv);
+            this.timers.push(timer);
+        }
+    }
+    
+    stop() {
+        this.isRunning = false;
+        this.timers.forEach(clearInterval);
+        this.timers = [];
+        this.startBtn.disabled = false;
+        this.stopBtn.disabled = true;
+        this.log(`⏹️ 停止`);
+    }
+    
+    log(m) {
+        let d = new Date().toLocaleTimeString();
+        this.logEl.innerHTML = `[${d}] ${m}<br>` + this.logEl.innerHTML;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => new StressTester());
+</script>
+</body>
+</html>
